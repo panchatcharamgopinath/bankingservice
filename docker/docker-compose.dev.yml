@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  banking-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: banking-service
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/banking.db
+      - Jwt__Key=${JWT_KEY:-YourSuperSecretKeyThatIsAtLeast32CharactersLongForHS256}
+      - Jwt__Issuer=${JWT_ISSUER:-BankingService}
+      - Jwt__Audience=${JWT_AUDIENCE:-BankingServiceClient}
+    volumes:
+      - banking-data:/app/data
+      - banking-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - banking-network
+
+volumes:
+  banking-data:
+    driver: local
+  banking-logs:
+    driver: local
+
+networks:
+  banking-network:
+    driver: bridge
