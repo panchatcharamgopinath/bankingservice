@@ -1,0 +1,206 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banking-api
+  namespace: banking
+  labels:
+    app: banking-api
+    version: v1
+    tier: backend
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: banking-api
+  template:
+    metadata:
+      labels:
+        app: banking-api
+        version: v1
+        tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: banking-api-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: banking-api
+        image: REPLACE_WITH_ACR_NAME.azurecr.io/banking-api:REPLACE_WITH_IMAGE_TAG
+        imagePullPolicy: Always
+        
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        
+        env:
+        # Connection strings from Key Vault via CSI
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: banking-secrets
+              key: connection-string
+        
+        # JWT Configuration from Key Vault
+        - name: Jwt__Key
+          valueFrom:
+            secretKeyRef:
+              name: banking-secrets
+              key: jwt-key
+        - name: Jwt__Issuer
+          valueFrom:
+            configMapKeyRef:
+              name: banking-config
+              key: jwt.issuer
+        - name: Jwt__Audience
+          valueFrom:
+            configMapKeyRef:
+              name: banking-config
+              key: jwt.audience
+        
+        # Application Configuration
+        - name: ASPNETCORE_ENVIRONMENT
+          value: "Production"
+        - name: ASPNETCORE_URLS
+          value: "http://+:8080"
+        
+        # Monitoring
+        - name: ApplicationInsights__ConnectionString
+          valueFrom:
+            secretKeyRef:
+              name: banking-secrets
+              key: appinsights-connection-string
+        
+        # Feature Flags
+        - name: Features__EnableSwagger
+          valueFrom:
+            configMapKeyRef:
+              name: banking-config
+              key: features.swagger.enabled
+        - name: Features__EnableDetailedErrors
+          valueFrom:
+            configMapKeyRef:
+              name: banking-config
+              key: features.detailed-errors.enabled
+        
+        # Resource configuration
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        
+        # Health probes
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 30
+        
+        # Security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          capabilities:
+            drop:
+              - ALL
+        
+        # Volume mounts
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: app-tmp
+          mountPath: /app/tmp
+        - name: app-logs
+          mountPath: /app/logs
+        - name: secrets-store
+          mountPath: "/mnt/secrets-store"
+          readOnly: true
+      
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: app-tmp
+        emptyDir: {}
+      - name: app-logs
+        emptyDir: {}
+      - name: secrets-store
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "azure-banking-secrets"
+      
+      # Pod affinity rules for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - banking-api
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - banking-api
+              topologyKey: topology.kubernetes.io/zone
+      
+      # DNS Policy
+      dnsPolicy: ClusterFirst
+      
+      # Termination grace period
+      terminationGracePeriodSeconds: 30

@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: banking-api-ingress
+  namespace: banking
+  labels:
+    app: banking-api
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+    
+    # Client certificate authentication (optional)
+    # nginx.ingress.kubernetes.io/auth-tls-secret: "banking/banking-client-ca"
+    # nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+    
+    # WAF (if using Azure Application Gateway)
+    # appgw.ingress.kubernetes.io/waf-policy-for-path: "/subscriptions/.../WAFPolicy"
+    
+    # Certificate (cert-manager)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - api.banking.yourcompany.com
+    secretName: banking-api-tls
+  rules:
+  - host: api.banking.yourcompany.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: banking-api
+            port:
+              number: 80

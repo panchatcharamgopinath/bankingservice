@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: banking-api-pdb
+  namespace: banking
+  labels:
+    app: banking-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: banking-api
